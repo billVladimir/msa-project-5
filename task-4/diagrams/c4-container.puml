@@ -1,0 +1,26 @@
+@startuml c4-container
+!include <C4/C4_Container>
+
+title C4 - Диаграмма контейнеров: ETL-система TradeWare с Spring Batch
+
+Person(warehouse_worker, "Сотрудник склада", "Формирует и загружает\nCSV-отчёт по остаткам")
+
+System_Boundary(tradeware, "TradeWare System") {
+    Container(frontend, "ERP Frontend", "Angular, WebSockets", "Интерфейс для сотрудников склада\nи менеджеров: загрузка отчётов,\nпросмотр остатков")
+    Container(backend, "ERP Backend", "Java 11, WildFly", "Монолитное приложение:\nвалидация CSV, бизнес-логика,\nREST API, сохранение в GCS")
+    Container(batch_app, "Spring Batch ETL App", "Spring Boot, Java 17", "Пакетный ETL-пайплайн:\nItemReader → ItemProcessor → ItemWriter\nChunk-oriented processing")
+
+    ContainerDb(db, "PostgreSQL", "PostgreSQL 15+", "Таблицы:\n- products (результат ETL)\n- loyality_data (справочник)\n- BATCH_* (метаданные заданий)")
+}
+
+System_Ext(gcs, "Google Cloud Storage", "Хранилище CSV-файлов")
+
+Rel(warehouse_worker, frontend, "Загружает CSV", "HTTPS")
+Rel(frontend, backend, "REST API", "HTTPS")
+Rel(backend, gcs, "Сохраняет CSV-файл", "GCS API")
+Rel(batch_app, gcs, "Читает CSV-файл", "GCS API / classpath")
+Rel(batch_app, db, "SELECT loyality_data\nINSERT INTO products", "JDBC")
+Rel(backend, db, "Чтение остатков", "JDBC")
+Rel(frontend, warehouse_worker, "Уведомление", "WebSocket")
+
+@enduml
