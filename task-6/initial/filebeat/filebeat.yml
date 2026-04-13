@@ -1,0 +1,30 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /usr/share/filebeat/applogs/*.log
+    json.keys_under_root: true
+    json.overwrite_keys: true
+    json.add_error_key: true
+    fields:
+      app: batch-processing
+    fields_under_root: true
+    exclude_files: ['\.gz$']
+
+processors:
+  - drop_fields:
+      fields: ["agent", "ecs", "host", "input", "log.offset"]
+      ignore_missing: true
+
+filebeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: false
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info
+logging.to_files: false
+logging.to_syslog: false
+logging.metrics.enabled: false
+ssl.verification_mode: none
