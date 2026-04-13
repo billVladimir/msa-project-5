@@ -1,0 +1,30 @@
+@startuml c4_context_to_be
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title C4 Context - Генерация B2B-прайс-листов (To Be)
+
+Person(b2b_client, "B2B-клиент", "Получает персональный прайс-лист для закупок")
+Person(ops_team, "Ops-команда", "Мониторит выполнение заданий и реагирует на алерты")
+
+System_Boundary(k8s, "Kubernetes Cluster") {
+    Container(cronjob, "CronJob: pricelist-exporter", "Python, psycopg2, boto3", "Каждый день в 6:00 запускает Pod, который читает данные из PostgreSQL, формирует CSV-файлы для каждого B2B-клиента и загружает их в S3")
+    ContainerDb(postgres, "PostgreSQL", "БД прайс-листов", "Таблицы: products, categories, clients, client_prices")
+    Container(pushgateway, "Prometheus Pushgateway", "Prometheus", "Принимает метрики от короткоживущих Job")
+}
+
+System_Ext(s3, "S3-хранилище", "MinIO / AWS S3 / GCS - хранение сгенерированных CSV-файлов")
+System_Ext(monitoring, "Мониторинг", "Prometheus + Grafana + AlertManager - сбор метрик, визуализация, алертинг")
+System_Ext(logging, "Логирование", "ELK / Loki - сбор и поиск по логам Pod")
+
+Rel(cronjob, postgres, "SELECT ... JOIN", "TCP/5432")
+Rel(cronjob, s3, "PUT CSV-файлы", "HTTPS")
+Rel(cronjob, pushgateway, "Push метрики", "HTTP/9091")
+Rel(pushgateway, monitoring, "Scrape метрик", "HTTP")
+Rel(b2b_client, s3, "Скачивает прайс-лист", "HTTPS")
+Rel(ops_team, monitoring, "Просматривает дашборды и алерты")
+Rel(ops_team, logging, "Анализирует логи")
+Rel(cronjob, logging, "stdout/stderr → агент сбора логов", "Fluentd/Filebeat")
+
+SHOW_LEGEND()
+@enduml

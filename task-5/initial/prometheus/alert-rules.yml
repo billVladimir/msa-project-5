@@ -1,0 +1,20 @@
+groups:
+  - name: batch-processing-alerts
+    rules:
+      - alert: HighCpuUsage
+        expr: process_cpu_usage{job="batch-processing"} * 100 > 80
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on batch-processing"
+          description: "CPU usage is above 80% for more than 1 minute. Current value: {{ $value }}%"
+
+      - alert: HighMemoryUsage
+        expr: (jvm_memory_used_bytes{area="heap", job="batch-processing"} / jvm_memory_max_bytes{area="heap", job="batch-processing"}) * 100 > 85
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High JVM heap memory usage on batch-processing"
+          description: "JVM heap memory usage is above 85% for more than 2 minutes. Current value: {{ $value }}%"

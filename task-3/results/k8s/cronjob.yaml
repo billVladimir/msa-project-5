@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shipments-exporter
+  namespace: logistics
+spec:
+  schedule: "0 20 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: shipments-exporter
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: exporter
+              image: shipments-exporter:latest
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - secretRef:
+                    name: db-credentials
+                - configMapRef:
+                    name: exporter-config
+              volumeMounts:
+                - name: export-data
+                  mountPath: /data/export
+              resources:
+                requests:
+                  memory: "64Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "500m"
+          volumes:
+            - name: export-data
+              persistentVolumeClaim:
+                claimName: export-data

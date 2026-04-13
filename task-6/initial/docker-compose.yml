@@ -1,0 +1,174 @@
+version: "3.8"
+
+volumes:
+  app-logs:
+
+services:
+  postgresdb:
+    image: postgres
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      - POSTGRES_USER=$POSTGRESDB_USER
+      - POSTGRES_PASSWORD=$POSTGRESDB_ROOT_PASSWORD
+      - POSTGRES_DB=$POSTGRESDB_DATABASE
+    ports:
+      - $POSTGRESDB_LOCAL_PORT:$POSTGRESDB_DOCKER_PORT
+    volumes:
+      - ./src/main/resources/schema-all.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d productsdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: "docker.elastic.co/elasticsearch/elasticsearch:7.17.28"
+    platform: linux/amd64
+    container_name: "elasticsearch"
+    restart: "unless-stopped"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - "discovery.type=single-node"
+      - "xpack.security.enabled=false"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    healthcheck:
+      test: "curl -f http://localhost:9200 || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  logstash:
+    image: "docker.elastic.co/logstash/logstash:7.17.28"
+    container_name: "logstash"
+    restart: "unless-stopped"
+    ports:
+      - "5044:5044"
+    volumes:
+      - "./logstash/pipeline:/usr/share/logstash/pipeline/"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: "curl -f http://localhost:9600 || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kibana:
+    image: "docker.elastic.co/kibana/kibana:7.17.28"
+    container_name: "kibana"
+    restart: "unless-stopped"
+    ports:
+      - "5601:5601"
+    environment:
+      - "ELASTICSEARCH_HOSTS=http://elasticsearch:9200"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: "curl -f http://localhost:5601 || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  filebeat:
+    build: "filebeat"
+    container_name: "filebeat"
+    restart: "unless-stopped"
+    volumes:
+      - app-logs:/usr/share/filebeat/applogs:ro
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  prometheus:
+    image: "prom/prometheus:v3.4.0"
+    container_name: "prometheus"
+    restart: "unless-stopped"
+    volumes:
+      - "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+      - "./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml"
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "wget -qO- http://localhost:9090/-/healthy || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: "grafana/grafana:12.0.1"
+    container_name: "grafana"
+    restart: "unless-stopped"
+    ports:
+      - "3000:3000"
+    environment:
+      - "GF_USERS_ALLOW_SIGN_UP=false"
+      - "GF_SECURITY_ADMIN_USER=admin"
+      - "GF_SECURITY_ADMIN_PASSWORD=admin"
+    volumes:
+      - "./grafana/provisioning:/etc/grafana/provisioning"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "wget -qO- http://localhost:3000/api/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+      filebeat:
+        condition: service_started
+      grafana:
+        condition: service_healthy
+    image: batch-processing
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: "batch-processing"
+    restart: "unless-stopped"
+    ports:
+      - "8080:8080"
+    env_file: ./.env
+    volumes:
+      - app-logs:/app/logs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "wget -qO- http://localhost:8080/actuator/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: "etl-client"
+    restart: "no"
+    depends_on:
+      app:
+        condition: service_healthy

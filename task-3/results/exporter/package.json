@@ -1,0 +1,12 @@
+{
+  "name": "shipments-exporter",
+  "version": "1.0.0",
+  "description": "Export shipments data from PostgreSQL to CSV",
+  "main": "export.js",
+  "scripts": {
+    "start": "node export.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

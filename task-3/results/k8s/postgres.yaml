@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: logistics
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS shipments (
+        shipment_id    SERIAL PRIMARY KEY,
+        client_id      INT            NOT NULL,
+        driver_id      INT            NOT NULL,
+        vehicle_id     INT            NOT NULL,
+        origin         VARCHAR(255)   NOT NULL,
+        destination    VARCHAR(255)   NOT NULL,
+        status         VARCHAR(32)    NOT NULL,
+        weight_kg      NUMERIC(10,2)  NOT NULL,
+        cost           NUMERIC(12,2)  NOT NULL,
+        created_at     TIMESTAMP      NOT NULL DEFAULT NOW(),
+        delivered_at   TIMESTAMP
+    );
+
+    INSERT INTO shipments (client_id, driver_id, vehicle_id, origin, destination, status, weight_kg, cost, created_at, delivered_at)
+    SELECT
+        (random() * 999 + 1)::int,
+        (random() * 499 + 1)::int,
+        (random() * 199 + 1)::int,
+        (ARRAY['Москва','Санкт-Петербург','Казань','Новосибирск','Екатеринбург','Краснодар','Нижний Новгород','Самара','Ростов-на-Дону','Уфа'])[floor(random()*10+1)::int],
+        (ARRAY['Владивосток','Хабаровск','Иркутск','Красноярск','Омск','Челябинск','Пермь','Волгоград','Воронеж','Тюмень'])[floor(random()*10+1)::int],
+        (ARRAY['created','in_transit','delivered','cancelled','delayed'])[floor(random()*5+1)::int],
+        (random() * 9900 + 100)::numeric(10,2),
+        (random() * 490000 + 10000)::numeric(12,2),
+        NOW() - (random() * 30 || ' days')::interval,
+        CASE WHEN random() > 0.4 THEN NOW() - (random() * 10 || ' days')::interval ELSE NULL END
+    FROM generate_series(1, 500);
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: logistics
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: logistics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: logistics
+            - name: POSTGRES_USER
+              value: logistics
+            - name: POSTGRES_PASSWORD
+              value: logistics
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "logistics"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+        - name: init-sql
+          configMap:
+            name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: logistics
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
